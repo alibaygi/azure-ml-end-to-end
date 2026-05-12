@@ -1,0 +1,13 @@
+name: model-env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy>=1.26
+  - pip>=24.0
+  - scikit-learn>=1.3
+  - scipy>=1.11
+  - pandas>=2.0
+  - pip:
+    - mlflow>=2.10.0
+    - azureml-mlflow>=1.54.0
