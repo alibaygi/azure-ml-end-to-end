@@ -1,0 +1,9 @@
+# CLI v2 Data asset — registers ./data/iris.csv as a versioned URI_FILE.
+# A data asset is a *bookmark* (an azureml:// URI), not a copy of the data.
+# Docs: https://learn.microsoft.com/azure/machine-learning/how-to-create-data-assets?view=azureml-api-2
+$schema: https://azuremlschemas.azureedge.net/latest/data.schema.json
+name: iris-data
+version: "1"
+description: Iris dataset - 150 rows, 4 features, 3 species
+type: uri_file
+path: ../data/iris.csv

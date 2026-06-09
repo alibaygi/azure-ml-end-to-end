@@ -1,0 +1,198 @@
+# ============================================================================
+#  Azure DevOps Pipeline — MLOps CI/CD for the Iris project (Azure ML CLI v2)
+# ============================================================================
+#  Three stages turn a `git push` into a deployed REST endpoint:
+#
+#    CI       →  lint + unit tests + `az ml job validate`   (every PR & push)
+#    Train    →  register env/data, run training pipeline, register model (dev)
+#    Deploy   →  managed online endpoint + blue/green deploy (prod, gated by approval)
+#
+#  Pattern follows the current Microsoft guidance: an Azure Resource Manager
+#  service connection + the AzureCLI@2 task + the `az ml` CLI v2 extension.
+#  (Azure ML CLI v1 was retired on 2025-09-30 — everything here is v2.)
+#  Docs: https://learn.microsoft.com/azure/machine-learning/how-to-devops-machine-learning?view=azureml-api-2
+# ============================================================================
+
+name: iris-mlops-$(Date:yyyyMMdd)$(Rev:.r)
+
+# ── Triggers ────────────────────────────────────────────────────────────────
+# Run on pushes to main, and on PRs targeting main (CI stage gates the merge).
+trigger:
+  branches:
+    include: [ main ]
+  paths:
+    include:
+      - components/**
+      - mlops/**
+      - dependencies/**
+      - tests/**
+      - azure-pipelines.yml
+
+pr:
+  branches:
+    include: [ main ]
+
+# ── Variables ───────────────────────────────────────────────────────────────
+# `iris-mlops-vars` is an Azure DevOps *variable group* (Pipelines > Library)
+# holding the per-environment values, so this YAML stays portable:
+#     resourceGroup, workspace, location
+variables:
+  - group: iris-mlops-vars
+  - name: serviceConnection
+    value: 'aml-arm-connection'        # name of your ARM service connection
+  - name: modelName
+    value: 'iris_defaults_model'
+  - name: endpointName
+    value: 'iris-endpoint-mlops'
+
+stages:
+
+# ════════════════════════════════════════════════════════════════════════════
+#  STAGE 1 — CI  ·  Validate code & ML assets (runs on every PR and push)
+# ════════════════════════════════════════════════════════════════════════════
+- stage: CI
+  displayName: 'CI · Lint, test & validate'
+  jobs:
+    - job: validate
+      pool:
+        vmImage: ubuntu-latest
+      steps:
+        - task: UsePythonVersion@0
+          displayName: 'Use Python 3.10'
+          inputs:
+            versionSpec: '3.10'
+
+        - bash: |
+            set -ex
+            python -m pip install --upgrade pip
+            pip install flake8 pytest pandas scikit-learn
+          displayName: 'Install dev tooling'
+
+        - bash: |
+            set -ex
+            # Style check only — never block the build on lint (warnings, not errors).
+            flake8 components --max-line-length=120 --extend-ignore=E402,W503 || true
+          displayName: 'Lint component scripts'
+
+        - bash: |
+            set -ex
+            # Fast, cloud-free unit test of the training logic (see tests/).
+            pytest tests -q
+          displayName: 'Run unit tests'
+
+        - task: AzureCLI@2
+          displayName: 'az ml job validate (schema + wiring check)'
+          inputs:
+            azureSubscription: $(serviceConnection)
+            scriptType: bash
+            scriptLocation: inlineScript
+            inlineScript: |
+              set -ex
+              az extension add -n ml -y
+              az configure --defaults group=$(resourceGroup) workspace=$(workspace) location=$(location)
+              # Validates the pipeline YAML against the workspace WITHOUT running it.
+              az ml job validate --file mlops/train-pipeline.yml
+
+# ════════════════════════════════════════════════════════════════════════════
+#  STAGE 2 — Train  ·  Register assets + run the training pipeline (dev)
+# ════════════════════════════════════════════════════════════════════════════
+- stage: Train
+  displayName: 'Train · Run pipeline & register model'
+  dependsOn: CI
+  condition: succeeded()
+  jobs:
+    - job: train
+      timeoutInMinutes: 120
+      pool:
+        vmImage: ubuntu-latest
+      steps:
+        - task: AzureCLI@2
+          name: trainStep
+          displayName: 'Register env/data, submit & stream pipeline'
+          inputs:
+            azureSubscription: $(serviceConnection)
+            scriptType: bash
+            scriptLocation: inlineScript
+            inlineScript: |
+              set -ex
+              az extension add -n ml -y
+              az configure --defaults group=$(resourceGroup) workspace=$(workspace) location=$(location)
+
+              # 1. Ensure the compute cluster exists (idempotent — scales to 0 when idle).
+              az ml compute show -n cpu-cluster \
+                || az ml compute create -n cpu-cluster --type amlcompute \
+                     --size Standard_E2ds_v4 --min-instances 0 --max-instances 2
+
+              # 2. Register/update the environment from conda.yml (auto-increments version).
+              az ml environment create --file mlops/environment.yml
+
+              # 3. Register/update the data asset (ignore "version exists" on re-runs).
+              az ml data create --file mlops/data-asset.yml \
+                || echo "data asset version already exists — continuing"
+
+              # 4. Submit the training pipeline and stream its logs into the build log.
+              job_name=$(az ml job create --file mlops/train-pipeline.yml --query name -o tsv)
+              echo "Submitted Azure ML job: $job_name"
+              az ml job stream -n "$job_name"
+
+              # 5. Fail the stage unless the pipeline finished Completed.
+              status=$(az ml job show -n "$job_name" --query status -o tsv)
+              echo "Final job status: $status"
+              [ "$status" = "Completed" ] || exit 1
+
+              # 6. Publish the freshly registered model version for the Deploy stage.
+              model_version=$(az ml model list -n $(modelName) --query "[0].version" -o tsv)
+              echo "Registered $(modelName) version: $model_version"
+              echo "##vso[task.setvariable variable=MODEL_VERSION;isOutput=true]$model_version"
+
+# ════════════════════════════════════════════════════════════════════════════
+#  STAGE 3 — Deploy  ·  Managed online endpoint (prod, gated by approval)
+# ════════════════════════════════════════════════════════════════════════════
+- stage: Deploy
+  displayName: 'Deploy · Managed online endpoint'
+  dependsOn: Train
+  condition: succeeded()
+  jobs:
+    # A `deployment` job targets an Azure DevOps *Environment*. Add a manual
+    # approval check on the `iris-prod` environment (Pipelines > Environments)
+    # so a human signs off before anything goes live.
+    - deployment: deploy
+      environment: 'iris-prod'
+      pool:
+        vmImage: ubuntu-latest
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+              - checkout: self
+              - task: AzureCLI@2
+                displayName: 'Create endpoint + blue/green deployment'
+                inputs:
+                  azureSubscription: $(serviceConnection)
+                  scriptType: bash
+                  scriptLocation: inlineScript
+                  inlineScript: |
+                    set -ex
+                    az extension add -n ml -y
+                    az configure --defaults group=$(resourceGroup) workspace=$(workspace) location=$(location)
+
+                    # 1. Create the endpoint once; reuse it on later runs.
+                    az ml online-endpoint show -n $(endpointName) \
+                      || az ml online-endpoint create --file mlops/endpoint.yml
+
+                    # 2. Roll out a uniquely-named deployment (blue/green — zero downtime).
+                    deploy_name="blue-$(Build.BuildId)"
+                    az ml online-deployment create \
+                      --endpoint-name $(endpointName) \
+                      --file mlops/deployment.yml \
+                      --set name=$deploy_name \
+                      --all-traffic
+
+                    # 3. Smoke-test the new deployment with a known request.
+                    az ml online-endpoint invoke -n $(endpointName) \
+                      --deployment-name $deploy_name \
+                      --request-file sample/request.json
+
+                    # 4. Shift 100% of traffic to the validated deployment.
+                    az ml online-endpoint update -n $(endpointName) \
+                      --traffic "$deploy_name=100"

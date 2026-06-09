@@ -1,0 +1,11 @@
+# CLI v2 Managed Online Deployment — attaches a specific model version to the endpoint.
+# Because train.py used mlflow.sklearn.log_model(), NO scoring script is needed:
+# MLflow provides the predict() interface automatically.
+# The CD stage overrides `name` per run (blue-$(Build.BuildId)) for safe blue/green rollout.
+# Docs: https://learn.microsoft.com/azure/machine-learning/reference-yaml-deployment-managed-online?view=azureml-api-2
+$schema: https://azuremlschemas.azureedge.net/latest/managedOnlineDeployment.schema.json
+name: blue
+endpoint_name: iris-endpoint-mlops
+model: azureml:iris_defaults_model@latest   # latest registered version from the Train stage
+instance_type: Standard_DS2_v2
+instance_count: 1

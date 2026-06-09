@@ -1,73 +1,94 @@
-import os
 import argparse
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.metrics import classification_report
+import os
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
 import mlflow
-import mlflow.sklearn
+
+
+def select_first_file(path):
+    """Selects first file in folder, use under assumption there is only one file in folder
+    Args:
+        path (str): path to directory or file to choose
+    Returns:
+        str: full path of selected file
+    """
+    files = os.listdir(path)
+    return os.path.join(path, files[0])
+
+
+# Start Logging
+mlflow.start_run()
+
+# enable autologging
+mlflow.sklearn.autolog()
+
+os.makedirs("./outputs", exist_ok=True)
+
 
 def main():
-    # ── 1. Parse arguments ────────────────────────────────────────────────────
+    """Main function of the script."""
+
+    # input and output arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument("--train_data",            type=str,   help="path to train folder")
-    parser.add_argument("--test_data",             type=str,   help="path to test folder")
-    parser.add_argument("--learning_rate",         type=float, default=0.1)
-    parser.add_argument("--registered_model_name", type=str,   help="name to register model as")
-    parser.add_argument("--model",                 type=str,   help="output folder for model")
+    parser.add_argument("--train_data", type=str, help="path to train data")
+    parser.add_argument("--test_data", type=str, help="path to test data")
+    parser.add_argument("--learning_rate", required=False, default=0.1, type=float)
+    parser.add_argument("--registered_model_name", type=str, help="model name")
+    parser.add_argument("--model", type=str, help="path to model file")
     args = parser.parse_args()
 
-    # ── 2. MLflow autolog ─────────────────────────────────────────────────────
-    # autolog() automatically logs: params, metrics, model artifact
-    # No need to manually call mlflow.log_param() for sklearn params
-    mlflow.sklearn.autolog()
+    # paths are mounted as folder, therefore, we are selecting the file from folder
+    train_df = pd.read_csv(select_first_file(args.train_data))
 
-    with mlflow.start_run():
+    # Extracting the label column
+    y_train = train_df.pop("species")
 
-        # ── 3. Load splits ────────────────────────────────────────────────────
-        train_df = pd.read_csv(os.path.join(args.train_data, "data.csv"))
-        test_df  = pd.read_csv(os.path.join(args.test_data,  "data.csv"))
+    # convert the dataframe values to array
+    X_train = train_df.values
 
-        # Iris dataset: label column is "species", features are everything else
-        label_col = "species"
-        X_train = train_df.drop(columns=[label_col])
-        y_train = train_df[label_col]
-        X_test  = test_df.drop(columns=[label_col])
-        y_test  = test_df[label_col]
+    # paths are mounted as folder, therefore, we are selecting the file from folder
+    test_df = pd.read_csv(select_first_file(args.test_data))
 
-        print(f"Training on {len(X_train)} rows, testing on {len(X_test)} rows")
+    # Extracting the label column
+    y_test = test_df.pop("species")
 
-        # ── 4. Train ──────────────────────────────────────────────────────────
-        # C = 1/regularization_strength; we reuse learning_rate param as C
-        # autolog logs: C, max_iter, solver, accuracy, etc. automatically
-        model = LogisticRegression(C=args.learning_rate, max_iter=200)
-        model.fit(X_train, y_train)
+    # convert the dataframe values to array
+    X_test = test_df.values
 
-        # ── 5. Evaluate ───────────────────────────────────────────────────────
-        y_pred   = model.predict(X_test)
-        accuracy = accuracy_score(y_test, y_pred)
-        print(f"Test Accuracy: {accuracy:.4f}")
+    print(f"Training with data of shape {X_train.shape}")
 
-        # mlflow.sklearn.autolog() already logged accuracy,
-        # but we log it again explicitly so it's visible as a custom metric too
-        mlflow.log_metric("test_accuracy", accuracy)
+    clf = GradientBoostingClassifier(
+        learning_rate=args.learning_rate
+    )
+    clf.fit(X_train, y_train)
 
-        # ── 6. Register model in AML Model Registry ───────────────────────────
-        # mlflow.sklearn.log_model registers the model artifact in the run.
-        # AML then picks it up and registers it in the workspace model registry.
-        print(f"Registering model as: {args.registered_model_name}")
-        mlflow.sklearn.log_model(
-            sk_model=model,
-            artifact_path="iris_model",
-            registered_model_name=args.registered_model_name,
-        )
+    y_pred = clf.predict(X_test)
 
-        # ── 7. Save model to output path (for pipeline output wiring) ─────────
-        os.makedirs(args.model, exist_ok=True)
-        import pickle
-        with open(os.path.join(args.model, "model.pkl"), "wb") as f:
-            pickle.dump(model, f)
+    print(classification_report(y_test, y_pred))
 
-        print("Training complete.")
+    # Log the model artifact
+    print("Logging the model via MLFlow")
+    mlflow.sklearn.log_model(
+        sk_model=clf,
+        artifact_path=args.registered_model_name,
+    )
+
+    # Registering the model to the workspace
+    print("Registering the model via MLFlow")
+    run = mlflow.active_run()
+    model_uri = f"runs:/{run.info.run_id}/{args.registered_model_name}"
+    mlflow.register_model(model_uri, args.registered_model_name)
+
+    # Saving the model to a file
+    mlflow.sklearn.save_model(
+        sk_model=clf,
+        path=os.path.join(args.model, "trained_model"),
+    )
+
+    # Stop Logging
+    mlflow.end_run()
+
 
 if __name__ == "__main__":
     main()

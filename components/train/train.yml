@@ -1,37 +1,23 @@
-# train.yml — AML Component definition for the training step
-# This YAML tells AML: what script to run, what inputs/outputs it expects,
-# and what environment to use. Loaded in the notebook with load_component().
-
-$schema: https://azuremlschemas.azureedge.net/latest/commandComponent.schema.json
-
+# <component>
 name: train_iris_model
 display_name: Train Iris Model
-version: 1
-
+# version: 1 # Not specifying a version will automatically update the version
 type: command
-
 inputs:
   train_data:
     type: uri_folder
-    description: Folder containing train split (data.csv)
   test_data:
     type: uri_folder
-    description: Folder containing test split (data.csv)
   learning_rate:
     type: number
     default: 0.1
-    description: Used as C (inverse regularization) for LogisticRegression
   registered_model_name:
     type: string
-    description: Name to register the trained model under in AML
-
 outputs:
   model:
     type: uri_folder
-    description: Output folder containing model.pkl
-
 code: .
-
+environment: azureml:aml-scikit-learn@latest
 command: >-
   python train.py
   --train_data ${{inputs.train_data}}
@@ -39,5 +25,4 @@ command: >-
   --learning_rate ${{inputs.learning_rate}}
   --registered_model_name ${{inputs.registered_model_name}}
   --model ${{outputs.model}}
-
-environment: azureml:aml-scikit-learn@latest
+# </component>

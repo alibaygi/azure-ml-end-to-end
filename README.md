@@ -1,10 +1,33 @@
-# Azure ML End-to-End: Iris Pipeline
+# Azure ML + Azure DevOps: Iris MLOps Project
 
-A minimal, well-commented Azure ML project that walks through every major concept —
-from workspace connection to a live REST endpoint — using the Iris dataset.
+A minimal, well-commented project that teaches **two skills** with one tiny dataset:
 
-The goal is not the model. It's understanding the **logic behind Azure ML**:
+1. **Azure ML** — author an end-to-end pipeline with the Python **SDK v2**
+   (workspace → compute → environment → data → pipeline → model → live REST endpoint).
+2. **Azure DevOps** — operationalize that *same* pipeline as a **CI/CD pipeline** with the
+   **CLI v2** (lint/test/validate → train/register → deploy, gated by an approval).
+
+The goal is not the model. It's understanding the **logic behind Azure ML and MLOps**:
 what each primitive is, what it does, and why it exists.
+
+> ### 👉 New here? Don't know where to start?
+> Follow **[GETTING_STARTED.md](GETTING_STARTED.md)** — a click-by-click runbook.
+> **Short version:** build the **Azure ML** workspace *first* (it's where models live), then wire
+> up **Azure DevOps** (it's what ships them there). This project uses **Azure DevOps Pipelines**,
+> **not** GitHub Actions — your code stays on GitHub and Azure DevOps just reads it.
+
+## The two notebooks
+
+| Notebook | Tool | You learn |
+|----------|------|-----------|
+| `aml_iris_end_to_end.ipynb` | **SDK v2** | How to *author & experiment* — run the lifecycle by hand |
+| `aml_iris_devops.ipynb` | **CLI v2 + Azure DevOps** | How to *ship* — a `git push` runs CI → Train → Deploy |
+
+Both notebooks reuse the **same** `components/`, `dependencies/conda.yml`, and `data/` —
+only the orchestration layer changes (Python objects → declarative YAML).
+
+> Reference (kept current): [What is Azure Machine Learning?](https://learn.microsoft.com/azure/machine-learning/overview-what-is-azure-machine-learning?view=azureml-api-2)
+> · [Azure DevOps for CI/CD](https://learn.microsoft.com/azure/machine-learning/how-to-devops-machine-learning?view=azureml-api-2)
 
 ---
 
@@ -28,10 +51,24 @@ what each primitive is, what it does, and why it exists.
 ## Folder structure
 
 ```
-aml_iris_project/
-├── aml_iris_end_to_end.ipynb       # Main notebook — run cell by cell
+azue_ml_iris_project_devops/
+├── aml_iris_end_to_end.ipynb       # NB1 — author with the SDK v2 (experiment)
+├── aml_iris_devops.ipynb           # NB2 — operationalize with Azure DevOps (ship)
+│
+├── azure-pipelines.yml             # CI/CD pipeline: CI → Train → Deploy (3 stages)
+├── mlops/                          # CLI v2 declarative assets the pipeline submits
+│   ├── environment.yml             #   env  (reuses dependencies/conda.yml)
+│   ├── data-asset.yml              #   data (reuses data/iris.csv)
+│   ├── train-pipeline.yml          #   prep→train pipeline (YAML twin of NB1)
+│   ├── endpoint.yml                #   managed online endpoint
+│   └── deployment.yml              #   model → endpoint deployment
+├── tests/
+│   └── test_pipeline_smoke.py      # fast, cloud-free unit tests for the CI stage
+│
 ├── dependencies/
-│   └── conda.yml                   # Packages installed on the remote cluster
+│   └── conda.yml                   # Packages installed on the remote cluster (shared)
+├── data/
+│   └── iris.csv                    # The dataset (shared)
 └── components/
     ├── data_prep/
     │   └── data_prep.py            # Step 1: split data, log stats to MLflow
@@ -39,6 +76,28 @@ aml_iris_project/
         ├── train.py                # Step 2: train model, MLflow autolog
         └── train.yml               # Component definition (YAML format)
 ```
+
+---
+
+## Azure DevOps CI/CD (Notebook 2)
+
+`azure-pipelines.yml` turns a `git push` into a deployed endpoint via three stages:
+
+| Stage | Runs | Does |
+|-------|------|------|
+| **CI** | every PR & push | `flake8` + `pytest tests` + `az ml job validate` |
+| **Train** | after CI passes | register env/data, run training pipeline, register model |
+| **Deploy** | after approval | managed online endpoint + blue/green deploy + smoke test |
+
+**One-time Azure DevOps setup** (click-by-click in [GETTING_STARTED.md](GETTING_STARTED.md)):
+- A **GitHub service connection** — lets Azure DevOps read your repo + trigger on `git push`
+  (auto-created when you make the pipeline). *Your code stays on GitHub.*
+- An **Azure Resource Manager** service connection named `aml-arm-connection` — lets the pipeline
+  talk to Azure ML. *(These two connections are different — see the runbook.)*
+- A **variable group** `iris-mlops-vars` with `resourceGroup`, `workspace`, `location`
+- An **environment** `iris-prod` with a manual **approval** check (the production gate)
+
+> Uses **CLI v2** throughout (`az extension add -n ml`). Azure ML CLI v1 was retired 2025-09-30.
 
 ---
 
@@ -158,7 +217,9 @@ Always run Step 11 (cleanup) when finished experimenting.
 
 ## Extending this project
 
+- Add a **model quality gate** stage: fail the build if `test_accuracy` drops below a threshold
+- Add a **second variable group + environment** for a full `dev → qa → prod` promotion chain
+- Replace the manual approval with an **automated check** (e.g. an Azure Function gate)
+- Schedule periodic **retraining** with an Event Grid or scheduled trigger
 - Add a third pipeline step for batch scoring
 - Replace LogisticRegression with a parameter sweep using `sweep()` job
-- Add a CI/CD workflow (GitHub Actions) that submits the pipeline on push
-- Connect a real blob container instead of using `workspaceblobstore`

@@ -1,0 +1,9 @@
+# CLI v2 Environment asset — the same env NB1 builds with the SDK, expressed as YAML.
+# In CI/CD we register it from the pipeline so the cluster always has the right packages.
+# Docs: https://learn.microsoft.com/azure/machine-learning/how-to-manage-environments-v2?view=azureml-api-2
+$schema: https://azuremlschemas.azureedge.net/latest/environment.schema.json
+name: aml-scikit-learn
+description: Custom environment for the Iris pipeline (Docker image + conda.yml)
+image: mcr.microsoft.com/azureml/openmpi4.1.0-ubuntu22.04:latest
+# Reuse the SAME conda.yml the SDK notebook uses — single source of truth for deps.
+conda_file: ../dependencies/conda.yml

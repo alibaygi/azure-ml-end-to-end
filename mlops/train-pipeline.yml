@@ -1,0 +1,64 @@
+# CLI v2 Pipeline job — the YAML twin of the @dsl.pipeline in NB1.
+# This is what `az ml job create --file ...` submits from the Azure DevOps pipeline.
+# It reuses the EXACT same Python scripts in ../components, so the SDK path (NB1)
+# and the CI/CD path (this file) train an identical model.
+# Docs: https://learn.microsoft.com/azure/machine-learning/reference-yaml-job-pipeline?view=azureml-api-2
+$schema: https://azuremlschemas.azureedge.net/latest/pipelineJob.schema.json
+type: pipeline
+display_name: iris_train_pipeline
+experiment_name: iris-mlops-devops
+description: Prep -> Train -> Register the Iris model (CLI v2, CI/CD-friendly)
+compute: azureml:cpu-cluster
+
+# Pipeline-level inputs — override any of these at submit time with --set inputs.xxx=...
+inputs:
+  input_data:
+    type: uri_file
+    path: azureml:iris-data@latest   # resolves to the latest version of the data asset
+  test_train_ratio: 0.25
+  learning_rate: 0.05
+  registered_model_name: iris_defaults_model
+
+outputs:
+  pipeline_train_data:
+  pipeline_test_data:
+
+jobs:
+  # ── Step 1: data_prep — split iris.csv into train/test, log row counts to MLflow ──
+  data_prep_job:
+    type: command
+    code: ../components/data_prep
+    environment: azureml:aml-scikit-learn@latest
+    inputs:
+      data: ${{parent.inputs.input_data}}
+      test_train_ratio: ${{parent.inputs.test_train_ratio}}
+    outputs:
+      train_data: ${{parent.outputs.pipeline_train_data}}
+      test_data: ${{parent.outputs.pipeline_test_data}}
+    command: >-
+      python data_prep.py
+      --data ${{inputs.data}}
+      --test_train_ratio ${{inputs.test_train_ratio}}
+      --train_data ${{outputs.train_data}}
+      --test_data ${{outputs.test_data}}
+
+  # ── Step 2: train — fit model, MLflow autolog, register to Model Registry ──
+  train_job:
+    type: command
+    code: ../components/train
+    environment: azureml:aml-scikit-learn@latest
+    inputs:
+      train_data: ${{parent.jobs.data_prep_job.outputs.train_data}}   # wire step1 -> step2
+      test_data: ${{parent.jobs.data_prep_job.outputs.test_data}}
+      learning_rate: ${{parent.inputs.learning_rate}}
+      registered_model_name: ${{parent.inputs.registered_model_name}}
+    outputs:
+      model:
+        type: uri_folder
+    command: >-
+      python train.py
+      --train_data ${{inputs.train_data}}
+      --test_data ${{inputs.test_data}}
+      --learning_rate ${{inputs.learning_rate}}
+      --registered_model_name ${{inputs.registered_model_name}}
+      --model ${{outputs.model}}
