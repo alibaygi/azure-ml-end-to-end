@@ -1,7 +1,7 @@
 # Getting Started — Click-by-Click Setup
 
-This is the **runbook**. Follow it top to bottom, once. After this, every `git push`
-to `main` runs your pipeline automatically.
+This is the **runbook**. Follow the 7 steps **top to bottom, in order**. After this, every
+`git push` to `main` runs your pipeline automatically.
 
 > **Mental model in one line:** Azure ML is *where models live*; Azure DevOps is *what
 > ships them there*. So you build the Azure ML workspace **first**, then point Azure DevOps at it.
@@ -28,188 +28,63 @@ to `main` runs your pipeline automatically.
    These are TWO DIFFERENT connections. Don't mix them up.
 ```
 
-There is **one** pipeline file: [`azure-pipelines.yml`](azure-pipelines.yml). The five files in
-[`mlops/`](mlops/) are **assets** that pipeline submits — you never select them in any UI.
+**Two pipeline files** live in the repo, and they have different jobs:
 
----
-
-## PHASE 1 — Azure ML (do this first, from your laptop)
-
-You need an Azure ML **workspace** before Azure DevOps has anything to deploy into.
-
-```bash
-# 1. Log in and pick your subscription
-az login
-az account set --subscription "<YOUR_SUBSCRIPTION_NAME_OR_ID>"
-
-# 2. Install the ML CLI v2 extension (v1 was retired 2025-09-30)
-az extension add -n ml
-
-# 3. Create the resource group + workspace  (pick a region close to you)
-az group create --name rg-aml-iris --location germanywestcentral
-az ml workspace create --name aml-iris-ws --resource-group rg-aml-iris --location germanywestcentral
-```
-
-**Write down these three values — you'll paste them into Azure DevOps in Phase 2, Step 4:**
-
-| Value | Example | Yours |
+| File | Trigger | Job |
 |---|---|---|
-| `resourceGroup` | `rg-aml-iris` | |
-| `workspace`     | `aml-iris-ws` | |
-| `location`      | `germanywestcentral` | |
+| [`azure-infra-pipeline.yml`](azure-infra-pipeline.yml) | manual only | **provisions** the workspace + compute (run once, Step 3) |
+| [`azure-pipelines.yml`](azure-pipelines.yml) | every `git push` | **trains + deploys** models (the CI/CD pipeline) |
 
-> You do **not** need to create the compute cluster or endpoint by hand — the pipeline does that.
-
----
-
-## PHASE 1 ALTERNATIVE — Infrastructure as Code (IaC)
-
-> **What is IaC?** Instead of running `az` commands by hand (Phase 1), you declare what
-> resources you want in a file — and a pipeline creates them for you. Same result, but the
-> definition lives in git: auditable, repeatable, shareable with a team.
-
-This project uses **Bicep** for IaC. Bicep is Microsoft's native declarative language for
-Azure resources. It's not YAML — it's a purpose-built language that compiles to ARM JSON —
-but it plays the same role YAML plays in other IaC tools (Terraform HCL, Kubernetes YAML).
-You define *what you want*; Azure figures out *how to create it*.
-
-The key pattern for production MLOps is two separate pipelines:
-
-```
-azure-infra-pipeline.yml   trigger: none → manual only   provisions Azure resources
-azure-pipelines.yml        trigger: main → on every push  trains + deploys models
-```
-
-The infra pipeline runs **once** (or whenever you need to rebuild the environment).
-The CI/CD pipeline runs **every time code changes**. They share the same ARM service connection.
-
-### Files added for IaC
-
-| File | What it is |
-|---|---|
-| [`infra/main.bicep`](infra/main.bicep) | Declares all Azure resources: storage, key vault, app insights, AML workspace, compute cluster |
-| [`azure-infra-pipeline.yml`](azure-infra-pipeline.yml) | Manual-only pipeline that deploys the Bicep template |
-
-### Step 1 — Register the infra pipeline in Azure DevOps
-
-Before running the infra pipeline, the `aml-arm-connection` service connection must exist
-**and must be scoped to the subscription** (not a resource group, because it needs to *create*
-the resource group). This is the only difference from Phase 2 Step 3:
-
-- **Project settings → Service connections → New → Azure Resource Manager → Next**
-- Identity type: keep the default (Workload identity federation)
-- Scope level: **Subscription** → pick your subscription → leave Resource group as **All resource groups**
-- You will see an orange advisory about the resource group — **ignore it, it is not an error**
-- **Service connection name:** type `aml-arm-connection`  ← **Save stays greyed out until you type this**
-- Check **Grant access permission to all pipelines** → **Save**
-
-> **Permissions note:** `infra/main.bicep` assigns RBAC roles (Key Vault Administrator +
-> Storage Blob Data Contributor) to the workspace identity — the "credential-less" pattern,
-> no keys stored anywhere. Creating role assignments requires the service connection's
-> identity to have **Owner** or **User Access Administrator** on the subscription.
->
-> **If your service connection only has Contributor** (e.g. you created it with
-> `az ad sp create-for-rbac --role Contributor`), run the pipeline with the parameter
-> **`assignRbacRoles = false`**. The template then skips the role assignments **and** puts
-> the Key Vault in auto-managed access-policy mode, which AML configures for you during
-> workspace creation — so the workspace deploys and works fully, just without the
-> credential-less RBAC hardening. (To add that later, grant the two roles by hand once you
-> have elevated permissions.)
-
-Then register the pipeline:
-- **Pipelines → New pipeline → GitHub → `alibaygi/azure-ml-end-to-end`**
-- **Existing Azure Pipelines YAML file** → path: **`/azure-infra-pipeline.yml`** → **Continue → Save**
-
-### Step 2 — Run it (the only manual click you ever need)
-
-- **Pipelines → `azure-infra-pipeline` → Run pipeline**
-- A form appears with the three parameters (pre-filled with defaults):
-
-  | Parameter | Default |
-  |---|---|
-  | Resource group name | `rg-aml-iris` |
-  | Azure ML workspace name | `aml-iris-ws` |
-  | Azure region | `germanywestcentral` |
-
-- Click **Run**. Azure reads [`infra/main.bicep`](infra/main.bicep) and creates everything.
-- When it finishes (~5 min), the job log prints:
-  ```
-  ══════════════════════════════════════════════════════════
-    Copy these into Pipelines → Library → iris-mlops-vars
-  ══════════════════════════════════════════════════════════
-    resourceGroup = rg-aml-iris
-    workspace     = aml-iris-ws
-    location      = germanywestcentral
-  ══════════════════════════════════════════════════════════
-  ```
-- Copy those into the `iris-mlops-vars` variable group (Phase 2 Step 4). You're done.
-
-> **Idempotent:** if you run the infra pipeline again on an existing workspace it does an
-> update-or-skip — it will **not** delete and recreate resources or lose your models.
-
-After this, continue from **Phase 2 Step 2** (create the main CI/CD pipeline).
-The Step 3 service connection is already done above — skip it and go straight to Step 4.
+The five files in [`mlops/`](mlops/) are **assets** the CI/CD pipeline submits — you never
+select them in any UI.
 
 ---
 
-## PHASE 2 — Azure DevOps (wire it up once)
+## The order — do these 7 steps top to bottom
+
+This project provisions the workspace with **Infrastructure as Code** (a Bicep template run by
+the infra pipeline). The dependency chain forces this exact order:
+
+| # | Step | Why it comes here |
+|---|------|-------------------|
+| 1 | Create the Azure DevOps project | the container for everything |
+| 2 | Create the **ARM** service connection | the infra pipeline needs it to talk to Azure |
+| 3 | **Run the infra pipeline** → workspace + compute | nothing can deploy into a workspace that doesn't exist |
+| 4 | Create the variable group | uses the names the infra pipeline created |
+| 5 | Register the **CI/CD** pipeline (GitHub conn) | needs the variable group + connection to validate |
+| 6 | Create the production approval gate | the Deploy stage targets it |
+| 7 | Run the CI/CD pipeline | everything it needs now exists |
+
+> **Prefer to create the workspace by hand** instead of with the infra pipeline? Skip Step 3
+> and do **[Alternative: provision from your laptop](#alternative--provision-the-workspace-from-your-laptop)**
+> at the bottom, then come back and continue from Step 4.
 
 Everything below happens at **https://dev.azure.com/mlops-industrial**.
 
-### Step 1 — Create a project
+---
+
+## Step 1 — Create the Azure DevOps project
 - Top-right **+ New project**
 - Name: `iris-mlops`  ·  Visibility: **Private**  ·  **Create**
 
-### Step 2 — Connect the pipeline to your GitHub repo  *(this makes connection #1)*
+---
 
-This step has **five screens**. The goal is just to *register and save* the pipeline —
-you will **not** run it yet (Steps 3–5 must exist first, or the run fails).
+## Step 2 — Create the ARM service connection  *(connection #2 — auth to Azure)*
 
-> **What "connection #1" means:** you don't create it manually. Azure DevOps creates the
-> **GitHub service connection** automatically when you authorize GitHub on screen 2 below.
-> That connection is what lets Azure DevOps read your code and trigger on `git push`.
+This is the one named `aml-arm-connection` referenced in **both** pipeline YAML files.
 
-**Screen 1 — Start a new pipeline**
-- Left menu → **Pipelines** → blue **Create Pipeline** button (or **New pipeline**, top-right, if you have one already)
-
-**Screen 2 — "Where is your code?"**
-- Choose **GitHub** (the option with the GitHub logo — *not* "GitHub Enterprise Server")
-- A GitHub popup opens → sign in if asked → click **Authorize AzurePipelines**
-- GitHub then asks to **install the Azure Pipelines app**. When it asks which repos:
-  choose **Only select repositories** → pick **`azure-ml-end-to-end`** → **Approve & Install**
-  *(this is the moment connection #1 is created)*
-
-**Screen 3 — "Select a repository"**
-- Click **`alibaygi/azure-ml-end-to-end`**
-
-**Screen 4 — "Configure your pipeline"**
-- Azure DevOps scans the repo. Because it already contains `azure-pipelines.yml`, it may
-  auto-suggest it. If you see a template list instead, **scroll to the bottom** and choose
-  **Existing Azure Pipelines YAML file**
-- In the panel that opens: Branch = **main**, Path = **`/azure-pipelines.yml`** → **Continue**
-
-**Screen 5 — "Review your pipeline YAML"**
-- The YAML is shown read-only. **Do not click the big blue Run button.**
-- Click the **▾ caret on the right edge of the Run button** → choose **Save**
-
-> After Save you land on the pipeline's page. It is registered but has never run — exactly
-> what you want. Continue to Step 3.
-
-### Step 3 — Create the ARM service connection  *(this makes connection #2)*
-This is the one named `aml-arm-connection` referenced in the YAML.
 - **Project settings** (bottom-left gear) → **Service connections** → **New service connection**
 - Choose **Azure Resource Manager** → **Next**
 - Identity type: keep the **recommended default** (Workload identity federation)
 - Scope level: **Subscription** → pick your subscription from the dropdown
-- Resource group: leave as **All resource groups** (you'll see an orange advisory — ignore it, it is not an error)
+- Resource group: leave as **All resource groups** — the infra pipeline needs subscription
+  scope to create the resource group. *(You'll see an orange advisory — ignore it, not an error.)*
 - **Service connection name:** type `aml-arm-connection`  ← **Save stays greyed out until you type this**
 - Check **Grant access permission to all pipelines**
-- Click **Save** (it becomes active as soon as the name field is filled)
+- Click **Save**
 
-> **If Save appears to do nothing or silently fails**, your Entra ID tenant is likely
-> blocking automatic app registration creation. Use the manual fallback below.
->
-> **Manual fallback — create the service principal yourself:**
+> **If Save appears to do nothing or silently fails**, your Entra ID tenant is blocking
+> automatic app registration. Use the manual fallback:
 > ```bash
 > # 1. Get your subscription ID
 > az account show --query id -o tsv
@@ -227,10 +102,64 @@ This is the one named `aml-arm-connection` referenced in the YAML.
 >   Service principal key (`password`), Tenant ID (`tenant`)
 > - Service connection name: `aml-arm-connection` → **Verify** → **Save**
 
-### Step 4 — Create the variable group  *(this is where your 3 values go)*
+---
+
+## Step 3 — Provision the workspace with the infra pipeline
+
+This runs [`infra/main.bicep`](infra/main.bicep), which creates the storage account, key vault,
+app insights, **the Azure ML workspace, and the compute cluster** — everything the CI/CD
+pipeline needs to exist.
+
+### 3a — Register the infra pipeline
+- Left menu → **Pipelines** → **New pipeline** (or **Create Pipeline**)
+- **Where is your code?** → **GitHub**
+- *(First time only:)* a GitHub popup opens → **Authorize AzurePipelines** → when it asks which
+  repos, choose **Only select repositories** → **`azure-ml-end-to-end`** → **Approve & Install**.
+  *This is the moment GitHub connection #1 is created.*
+- Select the repo **`alibaygi/azure-ml-end-to-end`**
+- On **Configure**, scroll to the bottom → **Existing Azure Pipelines YAML file**
+- Branch **main**, Path **`/azure-infra-pipeline.yml`** → **Continue**
+- Click the **▾ caret next to Run** → **Save** (so you land on the pipeline page with the
+  parameter form — don't run from this screen)
+
+### 3b — Run it
+- Open the pipeline you just saved → **Run pipeline**
+- A parameter form appears. Set:
+
+  | Field | Value |
+  |---|---|
+  | Resource group name | `rg-aml-iris` *(or your RG name)* |
+  | Azure ML workspace name | `aml-iris-ws` |
+  | Azure region | `germanywestcentral` |
+  | ☑ Assign RBAC roles… | see note below |
+
+  > **Assign RBAC roles?** This grants the workspace identity Key Vault + Storage roles (the
+  > "credential-less" best practice), which requires your service connection to have **Owner**
+  > or **User Access Administrator**. If you created the connection with
+  > `az ad sp create-for-rbac --role Contributor` (the manual fallback in Step 2), **UNCHECK
+  > this box** — the workspace still deploys and works fully (the key vault falls back to
+  > auto-managed access policies).
+
+- Click **Run** → **Permit** the service connection when asked.
+- It runs **Validate** (lint + what-if preview) → **Provision** (~5 min). Wait for green checks.
+- The job log ends by printing the three names to copy into Step 4:
+  ```
+  ══════════════════════════════════════════════════════════
+    resourceGroup = rg-aml-iris
+    workspace     = aml-iris-ws
+    location      = germanywestcentral
+  ══════════════════════════════════════════════════════════
+  ```
+
+> **Idempotent:** safe to re-run on an existing workspace — it updates or skips, never deletes.
+
+---
+
+## Step 4 — Create the variable group
+
 - **Pipelines** → **Library** → **+ Variable group**
 - Name: `iris-mlops-vars`  ← must match the YAML exactly
-- Add three variables (the values you wrote down in Phase 1):
+- Add three variables — **use the exact values the infra pipeline printed in Step 3**:
 
   | Variable | Value |
   |---|---|
@@ -240,7 +169,24 @@ This is the one named `aml-arm-connection` referenced in the YAML.
 
 - **Save**
 
-### Step 5 — Create the production gate (environment + approval)
+> ⚠️ **The #1 silent failure:** these three values must **exactly match** what Step 3 created.
+> A typo here means the CI/CD pipeline points at a workspace that doesn't exist.
+
+---
+
+## Step 5 — Register the CI/CD pipeline  *(the one that trains + deploys)*
+
+Same flow as Step 3a, but pointing at the **other** YAML file. GitHub is already authorized
+from Step 3, so there's no popup this time.
+
+- **Pipelines** → **New pipeline** → **GitHub** → **`alibaygi/azure-ml-end-to-end`**
+- **Configure** → scroll down → **Existing Azure Pipelines YAML file**
+- Branch **main**, Path **`/azure-pipelines.yml`** → **Continue**
+- Click the **▾ caret next to Run** → **Save** (**do NOT run yet** — Step 6 must exist first)
+
+---
+
+## Step 6 — Create the production approval gate
 - **Pipelines** → **Environments** → **New environment**
 - Name: `iris-prod`  ← must match the YAML exactly  ·  Resource: **None** → **Create**
 - Open `iris-prod` → top-right **⋮** → **Approvals and checks** → **+** → **Approvals**
@@ -249,22 +195,50 @@ This is the one named `aml-arm-connection` referenced in the YAML.
   > Now the **Deploy** stage pauses until you click **Approve** — your safety gate before
   > anything goes live and starts billing.
 
-### Step 6 — Run it
+---
 
-> **Before running**, confirm all of these exist or the run will fail:
-> the workspace (Phase 1 *or* the IaC alternative), the `aml-arm-connection`,
-> the `iris-mlops-vars` variable group, and the `iris-prod` environment.
+## Step 7 — Run the CI/CD pipeline
+
+> **Pre-flight check** — all of these must already exist (Steps 2–6):
+> the workspace + compute (Step 3), `aml-arm-connection`, `iris-mlops-vars`, `iris-prod`.
 
 - **Pipelines** → open the **`azure-ml-end-to-end`** pipeline → **Run pipeline**
-- A **"Run pipeline"** panel slides in from the right with several sections
-  (Pipeline version, Commit, Variables, Stages to run, Resources). **Leave them all at their
-  defaults** — you don't need to touch anything.
+- A **"Run pipeline"** panel slides in from the right (Pipeline version, Commit, Variables,
+  Stages to run, Resources). **Leave everything at its defaults** — don't touch any of it.
 - Click the blue **Run** button at the **bottom-right** of that panel.
-- First run asks you to **permit** the variable group + service connection — click **Permit**
-  (you may be asked once per resource).
+- First run asks you to **Permit** the variable group + service connection — click **Permit**.
 - Watch: **CI** → **Train** → (it pauses) → click **Approve** → **Deploy**.
 
 Done. From now on, a `git push` to `main` runs the whole thing automatically.
+
+---
+
+## Alternative: provision the workspace from your laptop
+
+Use this **instead of Step 3** if you'd rather create the workspace by hand than with the infra
+pipeline. Run these from your terminal, then go back to Step 4.
+
+```bash
+# 1. Log in and pick your subscription
+az login
+az account set --subscription "<YOUR_SUBSCRIPTION_NAME_OR_ID>"
+
+# 2. Install the ML CLI v2 extension (v1 was retired 2025-09-30)
+az extension add -n ml
+
+# 3. Create the resource group + workspace  (pick a region close to you)
+az group create --name rg-aml-iris --location germanywestcentral
+az ml workspace create --name aml-iris-ws --resource-group rg-aml-iris --location germanywestcentral
+
+# 4. Create the compute cluster  (the CI/CD pipeline expects it to already exist —
+#    it scales to 0 when idle, so it costs nothing between runs)
+az ml compute create --name cpu-cluster --type amlcompute \
+  --size Standard_E2ds_v4 --min-instances 0 --max-instances 2 \
+  --resource-group rg-aml-iris --workspace-name aml-iris-ws
+```
+
+Then use these three values in Step 4: `resourceGroup=rg-aml-iris`, `workspace=aml-iris-ws`,
+`location=germanywestcentral`.
 
 ---
 
@@ -277,6 +251,9 @@ single most common first-run blocker and is **not** a mistake in your setup.
 
 **`az ml` not found in the pipeline** — the YAML installs it (`az extension add -n ml -y`); if a
 step fails before that, check the ARM service connection name is exactly `aml-arm-connection`.
+
+**Train stage: "compute 'cpu-cluster' not found"** — you haven't provisioned yet. Run Step 3
+(or the laptop alternative) first; the compute cluster is owned by infra, not the CI/CD pipeline.
 
 **Train stage fails on data/version** — re-runs reuse the same data asset version; the YAML
 already tolerates this (`|| echo "...already exists"`), so this is informational, not fatal.
@@ -291,13 +268,14 @@ az ml online-endpoint delete -n iris-endpoint-mlops --yes --no-wait
 
 ## What runs, in order
 
-### Infrastructure pipeline (`azure-infra-pipeline.yml`) — run once, manually
+### Infrastructure pipeline (`azure-infra-pipeline.yml`) — run once, manually (Step 3)
 
 | Stage | Trigger | Does |
 |---|---|---|
-| **Provision** | manual only (`trigger: none`) | creates resource group → deploys `infra/main.bicep` → workspace + compute cluster |
+| **Validate** | manual only (`trigger: none`) | bicep lint + what-if preview of changes |
+| **Provision** | after Validate | creates resource group → deploys `infra/main.bicep` → workspace + compute cluster |
 
-### CI/CD pipeline (`azure-pipelines.yml`) — runs on every push
+### CI/CD pipeline (`azure-pipelines.yml`) — runs on every push (Step 7)
 
 | Stage | Trigger | Does | Gated? |
 |---|---|---|---|
