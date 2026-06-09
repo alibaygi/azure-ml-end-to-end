@@ -155,14 +155,39 @@ Everything below happens at **https://dev.azure.com/mlops-industrial**.
 - Name: `iris-mlops`  ·  Visibility: **Private**  ·  **Create**
 
 ### Step 2 — Connect the pipeline to your GitHub repo  *(this makes connection #1)*
-- Left menu → **Pipelines** → **Create Pipeline**
-- **Where is your code?** → choose **GitHub**
-- Authorize Azure DevOps when GitHub asks (this creates the **GitHub service connection**)
-- Select the repo **`alibaygi/azure-ml-end-to-end`**
-- **Configure** → choose **Existing Azure Pipelines YAML file**
-- Path: **`/azure-pipelines.yml`** → **Continue**
-- On the review screen, click the **dropdown next to "Run"** → **Save** (just Save — **do NOT run yet**;
-  Steps 3–5 must exist first or the run fails).
+
+This step has **five screens**. The goal is just to *register and save* the pipeline —
+you will **not** run it yet (Steps 3–5 must exist first, or the run fails).
+
+> **What "connection #1" means:** you don't create it manually. Azure DevOps creates the
+> **GitHub service connection** automatically when you authorize GitHub on screen 2 below.
+> That connection is what lets Azure DevOps read your code and trigger on `git push`.
+
+**Screen 1 — Start a new pipeline**
+- Left menu → **Pipelines** → blue **Create Pipeline** button (or **New pipeline**, top-right, if you have one already)
+
+**Screen 2 — "Where is your code?"**
+- Choose **GitHub** (the option with the GitHub logo — *not* "GitHub Enterprise Server")
+- A GitHub popup opens → sign in if asked → click **Authorize AzurePipelines**
+- GitHub then asks to **install the Azure Pipelines app**. When it asks which repos:
+  choose **Only select repositories** → pick **`azure-ml-end-to-end`** → **Approve & Install**
+  *(this is the moment connection #1 is created)*
+
+**Screen 3 — "Select a repository"**
+- Click **`alibaygi/azure-ml-end-to-end`**
+
+**Screen 4 — "Configure your pipeline"**
+- Azure DevOps scans the repo. Because it already contains `azure-pipelines.yml`, it may
+  auto-suggest it. If you see a template list instead, **scroll to the bottom** and choose
+  **Existing Azure Pipelines YAML file**
+- In the panel that opens: Branch = **main**, Path = **`/azure-pipelines.yml`** → **Continue**
+
+**Screen 5 — "Review your pipeline YAML"**
+- The YAML is shown read-only. **Do not click the big blue Run button.**
+- Click the **▾ caret on the right edge of the Run button** → choose **Save**
+
+> After Save you land on the pipeline's page. It is registered but has never run — exactly
+> what you want. Continue to Step 3.
 
 ### Step 3 — Create the ARM service connection  *(this makes connection #2)*
 This is the one named `aml-arm-connection` referenced in the YAML.
