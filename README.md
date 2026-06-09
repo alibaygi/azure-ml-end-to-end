@@ -55,8 +55,11 @@ azue_ml_iris_project_devops/
 ├── aml_iris_end_to_end.ipynb       # NB1 — author with the SDK v2 (experiment)
 ├── aml_iris_devops.ipynb           # NB2 — operationalize with Azure DevOps (ship)
 │
-├── azure-pipelines.yml             # CI/CD pipeline: CI → Train → Deploy (3 stages)
-├── mlops/                          # CLI v2 declarative assets the pipeline submits
+├── azure-pipelines.yml             # CI/CD pipeline: CI → Train → Deploy (3 stages, auto on push)
+├── azure-infra-pipeline.yml        # IaC pipeline: provision workspace (manual-only, run once)
+├── infra/
+│   └── main.bicep                  #   Bicep template: workspace + storage + KV + compute
+├── mlops/                          # CLI v2 declarative assets the CI/CD pipeline submits
 │   ├── environment.yml             #   env  (reuses dependencies/conda.yml)
 │   ├── data-asset.yml              #   data (reuses data/iris.csv)
 │   ├── train-pipeline.yml          #   prep→train pipeline (YAML twin of NB1)

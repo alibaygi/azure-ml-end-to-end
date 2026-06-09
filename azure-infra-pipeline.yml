@@ -1,0 +1,103 @@
+# ============================================================================
+#  Azure DevOps Pipeline — Infrastructure provisioning  (Bicep / IaC)
+# ============================================================================
+#
+#  trigger: none  →  NEVER runs on git push. Manual execution only:
+#    Pipelines → (this pipeline) → Run pipeline → fill in parameters → Run
+#
+#  What it provisions (idempotent — safe to re-run):
+#    • Resource group
+#    • Storage, Key Vault, App Insights  (AML dependencies, via infra/main.bicep)
+#    • Azure ML workspace
+#    • Compute cluster  (cpu-cluster, min 0 / max 2 nodes — free when idle)
+#
+#  Run this ONCE before the first run of azure-pipelines.yml.
+#  After it completes, copy the printed output values into the
+#  iris-mlops-vars variable group (Pipelines → Library).
+#
+#  Docs: https://learn.microsoft.com/azure/machine-learning/how-to-create-workspace-template
+# ============================================================================
+
+trigger: none     # manual runs only — never triggered by a git push
+
+# Runtime parameters appear as a form in the "Run pipeline" dialog in Azure DevOps.
+# Change the defaults here if your naming convention differs.
+parameters:
+  - name: resourceGroup
+    displayName: 'Resource group name'
+    type: string
+    default: 'rg-aml-iris'
+  - name: workspaceName
+    displayName: 'Azure ML workspace name'
+    type: string
+    default: 'aml-iris-ws'
+  - name: location
+    displayName: 'Azure region'
+    type: string
+    default: 'germanywestcentral'
+    values:                           # dropdown in the Run dialog
+      - germanywestcentral
+      - westeurope
+      - eastus
+      - eastus2
+      - westus2
+      - northeurope
+
+variables:
+  serviceConnection: 'aml-arm-connection'   # same ARM connection as azure-pipelines.yml
+  # NOTE: this connection must be scoped to the SUBSCRIPTION (not just the resource group)
+  # so it has permission to create the resource group itself.
+  # See GETTING_STARTED.md Phase 1 Alternative, Step 1 for the exact UI setting.
+
+stages:
+  - stage: Provision
+    displayName: 'Provision AML workspace (Bicep)'
+    jobs:
+      - job: provision
+        displayName: 'Deploy infra/main.bicep'
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+
+          # ── Step 1: Create the resource group (idempotent) ───────────────────
+          - task: AzureCLI@2
+            displayName: 'Create resource group'
+            inputs:
+              azureSubscription: $(serviceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -ex
+                az group create \
+                  --name "${{ parameters.resourceGroup }}" \
+                  --location "${{ parameters.location }}"
+
+          # ── Step 2: Deploy the Bicep template ────────────────────────────────
+          # az deployment group create is idempotent: if the workspace already
+          # exists it is updated, not duplicated.
+          - task: AzureCLI@2
+            displayName: 'Deploy Bicep — workspace + compute cluster'
+            inputs:
+              azureSubscription: $(serviceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -ex
+                az deployment group create \
+                  --resource-group "${{ parameters.resourceGroup }}" \
+                  --template-file infra/main.bicep \
+                  --parameters \
+                      workspaceName="${{ parameters.workspaceName }}" \
+                      location="${{ parameters.location }}" \
+                  --output table
+
+                # Print the three values you need for the variable group.
+                echo ""
+                echo "══════════════════════════════════════════════════════════"
+                echo "  Copy these into Pipelines → Library → iris-mlops-vars"
+                echo "══════════════════════════════════════════════════════════"
+                echo "  resourceGroup = ${{ parameters.resourceGroup }}"
+                echo "  workspace     = ${{ parameters.workspaceName }}"
+                echo "  location      = ${{ parameters.location }}"
+                echo "══════════════════════════════════════════════════════════"
