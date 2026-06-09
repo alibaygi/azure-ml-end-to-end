@@ -95,8 +95,13 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-02-01' = {
   properties: {
     sku: { family: 'A', name: 'standard' }
     tenantId: subscription().tenantId
-    // RBAC for data-plane access instead of the legacy accessPolicies model.
-    enableRbacAuthorization: true
+    // Best practice is RBAC data-plane auth (assignRbacRoles=true) — but that requires
+    // the deploying principal to be able to create role assignments (Owner / User Access
+    // Admin). If it can't (Contributor-only), fall back to access policies, which AML
+    // auto-configures for the workspace identity during workspace creation. This keeps
+    // the two settings consistent so the Key Vault is never left inaccessible.
+    enableRbacAuthorization: assignRbacRoles
+    accessPolicies: []
     enableSoftDelete: true
     softDeleteRetentionInDays: 7
   }

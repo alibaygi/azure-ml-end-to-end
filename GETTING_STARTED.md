@@ -106,9 +106,15 @@ the resource group). This is the only difference from Phase 2 Step 3:
 > **Permissions note:** `infra/main.bicep` assigns RBAC roles (Key Vault Administrator +
 > Storage Blob Data Contributor) to the workspace identity — the "credential-less" pattern,
 > no keys stored anywhere. Creating role assignments requires the service connection's
-> identity to have **Owner** or **User Access Administrator** on the subscription. If yours
-> only has **Contributor**, run the pipeline with the parameter **`assignRbacRoles = false`**
-> (the workspace still deploys; you grant those two roles by hand later).
+> identity to have **Owner** or **User Access Administrator** on the subscription.
+>
+> **If your service connection only has Contributor** (e.g. you created it with
+> `az ad sp create-for-rbac --role Contributor`), run the pipeline with the parameter
+> **`assignRbacRoles = false`**. The template then skips the role assignments **and** puts
+> the Key Vault in auto-managed access-policy mode, which AML configures for you during
+> workspace creation — so the workspace deploys and works fully, just without the
+> credential-less RBAC hardening. (To add that later, grant the two roles by hand once you
+> have elevated permissions.)
 
 Then register the pipeline:
 - **Pipelines → New pipeline → GitHub → `alibaygi/azure-ml-end-to-end`**
