@@ -97,9 +97,11 @@ Before running the infra pipeline, the `aml-arm-connection` service connection m
 the resource group). This is the only difference from Phase 2 Step 3:
 
 - **Project settings → Service connections → New → Azure Resource Manager → Next**
-- Identity type: keep the default
-- Scope level: **Subscription** → pick your subscription → **leave Resource group blank**
-- Name: `aml-arm-connection` → **Save**
+- Identity type: keep the default (Workload identity federation)
+- Scope level: **Subscription** → pick your subscription → leave Resource group as **All resource groups**
+- You will see an orange advisory about the resource group — **ignore it, it is not an error**
+- **Service connection name:** type `aml-arm-connection`  ← **Save stays greyed out until you type this**
+- Check **Grant access permission to all pipelines** → **Save**
 
 > **Permissions note:** `infra/main.bicep` assigns RBAC roles (Key Vault Administrator +
 > Storage Blob Data Contributor) to the workspace identity — the "credential-less" pattern,
@@ -166,10 +168,12 @@ Everything below happens at **https://dev.azure.com/mlops-industrial**.
 This is the one named `aml-arm-connection` referenced in the YAML.
 - **Project settings** (bottom-left gear) → **Service connections** → **New service connection**
 - Choose **Azure Resource Manager** → **Next**
-- Identity type: keep the **recommended default** (Workload identity federation / app registration — automatic)
-- Scope level: **Subscription** → pick your subscription → Resource group: **`rg-aml-iris`**
-- **Service connection name:** `aml-arm-connection`  ← must match the YAML exactly
-- Check **Grant access permission to all pipelines** → **Save**
+- Identity type: keep the **recommended default** (Workload identity federation)
+- Scope level: **Subscription** → pick your subscription from the dropdown
+- Resource group: leave as **All resource groups** (you'll see an orange advisory — ignore it, it is not an error)
+- **Service connection name:** type `aml-arm-connection`  ← **Save stays greyed out until you type this**
+- Check **Grant access permission to all pipelines**
+- Click **Save** (it becomes active as soon as the name field is filled)
 
 ### Step 4 — Create the variable group  *(this is where your 3 values go)*
 - **Pipelines** → **Library** → **+ Variable group**
