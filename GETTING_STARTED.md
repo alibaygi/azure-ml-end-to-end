@@ -244,8 +244,18 @@ This is the one named `aml-arm-connection` referenced in the YAML.
   > anything goes live and starts billing.
 
 ### Step 6 — Run it
-- **Pipelines** → open **iris-mlops** → **Run pipeline** → **Run**
-- First run asks you to **permit** the variable group + service connection — click **Permit**.
+
+> **Before running**, confirm all of these exist or the run will fail:
+> the workspace (Phase 1 *or* the IaC alternative), the `aml-arm-connection`,
+> the `iris-mlops-vars` variable group, and the `iris-prod` environment.
+
+- **Pipelines** → open the **`azure-ml-end-to-end`** pipeline → **Run pipeline**
+- A **"Run pipeline"** panel slides in from the right with several sections
+  (Pipeline version, Commit, Variables, Stages to run, Resources). **Leave them all at their
+  defaults** — you don't need to touch anything.
+- Click the blue **Run** button at the **bottom-right** of that panel.
+- First run asks you to **permit** the variable group + service connection — click **Permit**
+  (you may be asked once per resource).
 - Watch: **CI** → **Train** → (it pauses) → click **Approve** → **Deploy**.
 
 Done. From now on, a `git push` to `main` runs the whole thing automatically.
