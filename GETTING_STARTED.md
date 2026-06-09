@@ -101,6 +101,13 @@ the resource group). This is the only difference from Phase 2 Step 3:
 - Scope level: **Subscription** → pick your subscription → **leave Resource group blank**
 - Name: `aml-arm-connection` → **Save**
 
+> **Permissions note:** `infra/main.bicep` assigns RBAC roles (Key Vault Administrator +
+> Storage Blob Data Contributor) to the workspace identity — the "credential-less" pattern,
+> no keys stored anywhere. Creating role assignments requires the service connection's
+> identity to have **Owner** or **User Access Administrator** on the subscription. If yours
+> only has **Contributor**, run the pipeline with the parameter **`assignRbacRoles = false`**
+> (the workspace still deploys; you grant those two roles by hand later).
+
 Then register the pipeline:
 - **Pipelines → New pipeline → GitHub → `alibaygi/azure-ml-end-to-end`**
 - **Existing Azure Pipelines YAML file** → path: **`/azure-infra-pipeline.yml`** → **Continue → Save**

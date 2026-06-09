@@ -42,6 +42,10 @@ parameters:
       - eastus2
       - westus2
       - northeurope
+  - name: assignRbacRoles
+    displayName: 'Assign RBAC roles to workspace identity (needs Owner/User Access Admin)'
+    type: boolean
+    default: true
 
 variables:
   serviceConnection: 'aml-arm-connection'   # same ARM connection as azure-pipelines.yml
@@ -50,8 +54,64 @@ variables:
   # See GETTING_STARTED.md Phase 1 Alternative, Step 1 for the exact UI setting.
 
 stages:
+  # ══════════════════════════════════════════════════════════════════════════
+  #  STAGE 1 — Validate  ·  Lint + what-if (plan) BEFORE anything is created
+  # ══════════════════════════════════════════════════════════════════════════
+  #  The IaC "plan then apply" pattern: see exactly what will change before it
+  #  changes. `bicep build` catches syntax/type errors with no Azure call;
+  #  `what-if` shows the resource diff against the live resource group.
+  - stage: Validate
+    displayName: 'Validate · Bicep lint + what-if (plan)'
+    jobs:
+      - job: validate
+        displayName: 'Lint template & preview changes'
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+
+          - task: AzureCLI@2
+            displayName: 'Bicep lint (compile-time check, no Azure call)'
+            inputs:
+              azureSubscription: $(serviceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -ex
+                az bicep build --file infra/main.bicep --stdout > /dev/null
+                echo "Bicep template compiled cleanly."
+
+          - task: AzureCLI@2
+            displayName: 'what-if — preview resources that will be created/changed'
+            inputs:
+              azureSubscription: $(serviceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -ex
+                # what-if needs the resource group to exist; creating it is idempotent.
+                az group create \
+                  --name "${{ parameters.resourceGroup }}" \
+                  --location "${{ parameters.location }}"
+                az deployment group what-if \
+                  --resource-group "${{ parameters.resourceGroup }}" \
+                  --template-file infra/main.bicep \
+                  --parameters \
+                      workspaceName="${{ parameters.workspaceName }}" \
+                      location="${{ parameters.location }}" \
+                      assignRbacRoles=${{ parameters.assignRbacRoles }}
+
+  # ══════════════════════════════════════════════════════════════════════════
+  #  STAGE 2 — Provision  ·  Apply the template (only after Validate passes)
+  # ══════════════════════════════════════════════════════════════════════════
+  #  For a true production gate, target an Azure DevOps Environment with a manual
+  #  approval here (like the Deploy stage in azure-pipelines.yml) so a human
+  #  reviews the what-if output before apply. Left ungated since this pipeline is
+  #  already manual-trigger-only.
   - stage: Provision
     displayName: 'Provision AML workspace (Bicep)'
+    dependsOn: Validate
+    condition: succeeded()
     jobs:
       - job: provision
         displayName: 'Deploy infra/main.bicep'
@@ -90,6 +150,7 @@ stages:
                   --parameters \
                       workspaceName="${{ parameters.workspaceName }}" \
                       location="${{ parameters.location }}" \
+                      assignRbacRoles=${{ parameters.assignRbacRoles }} \
                   --output table
 
                 # Print the three values you need for the variable group.

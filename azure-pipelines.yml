@@ -118,10 +118,11 @@ stages:
               az extension add -n ml -y
               az configure --defaults group=$(resourceGroup) workspace=$(workspace) location=$(location)
 
-              # 1. Ensure the compute cluster exists (idempotent — scales to 0 when idle).
+              # 1. The compute cluster is owned by infra (infra/main.bicep), not this
+              #    pipeline — single source of truth. Just confirm it exists; fail loudly
+              #    with a clear pointer if the infra pipeline hasn't been run yet.
               az ml compute show -n cpu-cluster \
-                || az ml compute create -n cpu-cluster --type amlcompute \
-                     --size Standard_E2ds_v4 --min-instances 0 --max-instances 2
+                || { echo "ERROR: compute 'cpu-cluster' not found. Run azure-infra-pipeline.yml first (see GETTING_STARTED.md)."; exit 1; }
 
               # 2. Register/update the environment from conda.yml (auto-increments version).
               az ml environment create --file mlops/environment.yml
