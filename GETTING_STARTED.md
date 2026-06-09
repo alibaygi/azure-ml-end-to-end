@@ -175,6 +175,27 @@ This is the one named `aml-arm-connection` referenced in the YAML.
 - Check **Grant access permission to all pipelines**
 - Click **Save** (it becomes active as soon as the name field is filled)
 
+> **If Save appears to do nothing or silently fails**, your Entra ID tenant is likely
+> blocking automatic app registration creation. Use the manual fallback below.
+>
+> **Manual fallback — create the service principal yourself:**
+> ```bash
+> # 1. Get your subscription ID
+> az account show --query id -o tsv
+>
+> # 2. Create the service principal (save the output — password shown only once)
+> az ad sp create-for-rbac \
+>   --name "aml-devops-sp" \
+>   --role Contributor \
+>   --scopes /subscriptions/<YOUR_SUBSCRIPTION_ID>
+> ```
+> Then back in Azure DevOps:
+> - **New service connection → Azure Resource Manager → Next**
+> - Change identity type to **"App registration or managed identity (manual)"**
+> - Fill in: Subscription ID, Subscription name, Service principal ID (`appId`),
+>   Service principal key (`password`), Tenant ID (`tenant`)
+> - Service connection name: `aml-arm-connection` → **Verify** → **Save**
+
 ### Step 4 — Create the variable group  *(this is where your 3 values go)*
 - **Pipelines** → **Library** → **+ Variable group**
 - Name: `iris-mlops-vars`  ← must match the YAML exactly
