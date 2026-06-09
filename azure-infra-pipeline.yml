@@ -43,9 +43,9 @@ parameters:
       - westus2
       - northeurope
   - name: assignRbacRoles
-    displayName: 'Assign RBAC roles to workspace identity (needs Owner/User Access Admin)'
+    displayName: 'Assign RBAC roles to workspace identity (ONLY if your SP is Owner/User Access Admin)'
     type: boolean
-    default: true
+    default: false   # safe default: a Contributor SP can't create role assignments. Check only if Owner.
 
 variables:
   serviceConnection: 'aml-arm-connection'   # same ARM connection as azure-pipelines.yml

@@ -26,9 +26,11 @@ param computeClusterName string = 'cpu-cluster'
 
 @description('''Assign RBAC roles (Key Vault Administrator + Storage Blob Data Contributor)
 to the workspace managed identity. Requires the deploying principal to have Owner or
-User Access Administrator. Set to false if your service connection is only Contributor —
-the workspace still deploys, you just grant these roles manually later.''')
-param assignRbacRoles bool = true
+User Access Administrator. Defaults to false because the common case is a Contributor
+service connection (which cannot create role assignments) — the workspace still deploys
+fully, with the Key Vault falling back to access-policy mode. Set to true only if your
+deploying principal is Owner/User Access Admin and you want the credential-less pattern.''')
+param assignRbacRoles bool = false
 
 // Tags applied to every resource — standard for cost attribution + governance,
 // which matters in MLOps where compute and endpoints are the real cost drivers.

@@ -117,10 +117,26 @@ pipeline needs to exist.
   repos, choose **Only select repositories** → **`azure-ml-end-to-end`** → **Approve & Install**.
   *This is the moment GitHub connection #1 is created.*
 - Select the repo **`alibaygi/azure-ml-end-to-end`**
-- On **Configure**, scroll to the bottom → **Existing Azure Pipelines YAML file**
-- Branch **main**, Path **`/azure-infra-pipeline.yml`** → **Continue**
-- Click the **▾ caret next to Run** → **Save** (so you land on the pipeline page with the
-  parameter form — don't run from this screen)
+- **Heads-up:** because the repo already contains `azure-pipelines.yml`, the wizard
+  **auto-detects it and jumps straight to "Review your pipeline YAML"**, skipping the Configure
+  step. That's fine — you'll just point it at the right file from here (see the box below).
+- On the **Review** screen, **point it at the infra file**, then click the **▾ caret next to Run**
+  → **Save**.
+
+> #### 📌 The "pick the existing YAML file" trick (used in Step 3a **and** Step 5)
+> The wizard lands you on **Review** already showing `azure-pipelines.yml`. To switch to a
+> different existing file **without creating a new one**:
+> 1. Next to the GitHub icon, **click the filename** in the breadcrumb
+>    (`alibaygi/azure-ml-end-to-end / azure-pipelines.yml`).
+> 2. A dropdown lists the YAML files already in your repo → **pick the one you want**.
+> 3. **Watch the filename:**
+>    - **No asterisk** = it loaded the *existing* file from the repo (✅ what you want).
+>    - **`filename *`** (asterisk) = it thinks you're creating a *new* file. **Stop** — don't save,
+>      or you'll commit the wrong content over a good file.
+> 4. Save with the **▾ caret next to Run → Save**. With no asterisk, this just **registers the
+>    pipeline — it does NOT commit anything to GitHub**.
+> 5. **Do NOT** click a big **Save** button that pops up a *"Saving will commit … to the
+>    repository"* dialog — that means you're on the new-file path. Close it and redo from step 1.
 
 ### 3b — Run it
 - Open the pipeline you just saved → **Run pipeline**
@@ -131,14 +147,16 @@ pipeline needs to exist.
   | Resource group name | `rg-aml-iris` *(or your RG name)* |
   | Azure ML workspace name | `aml-iris-ws` |
   | Azure region | `germanywestcentral` |
-  | ☑ Assign RBAC roles… | see note below |
+  | ☐ Assign RBAC roles… | **leave unchecked** (default) — see note below |
 
-  > **Assign RBAC roles?** This grants the workspace identity Key Vault + Storage roles (the
-  > "credential-less" best practice), which requires your service connection to have **Owner**
-  > or **User Access Administrator**. If you created the connection with
-  > `az ad sp create-for-rbac --role Contributor` (the manual fallback in Step 2), **UNCHECK
-  > this box** — the workspace still deploys and works fully (the key vault falls back to
-  > auto-managed access policies).
+  > **Assign RBAC roles?** This box is **unchecked by default**, which is the right choice for
+  > the manual `az ad sp create-for-rbac --role Contributor` connection from Step 2 — a
+  > Contributor principal **cannot** create role assignments, so checking it makes the deploy
+  > fail with *"does not have permission to perform action
+  > 'Microsoft.Authorization/roleAssignments/write'"*. Left unchecked, the workspace still
+  > deploys and works fully (the key vault falls back to auto-managed access policies).
+  > **Only check it** if your service connection has **Owner** or **User Access Administrator**
+  > and you want the "credential-less" RBAC pattern.
 
 - Click **Run** → **Permit** the service connection when asked.
 - It runs **Validate** (lint + what-if preview) → **Provision** (~5 min). Wait for green checks.
@@ -176,12 +194,14 @@ pipeline needs to exist.
 
 ## Step 5 — Register the CI/CD pipeline  *(the one that trains + deploys)*
 
-Same flow as Step 3a, but pointing at the **other** YAML file. GitHub is already authorized
-from Step 3, so there's no popup this time.
+Same flow as Step 3a, but this time you keep the **`azure-pipelines.yml`** file the wizard
+already auto-detected. GitHub is already authorized from Step 3, so there's no popup this time.
 
 - **Pipelines** → **New pipeline** → **GitHub** → **`alibaygi/azure-ml-end-to-end`**
-- **Configure** → scroll down → **Existing Azure Pipelines YAML file**
-- Branch **main**, Path **`/azure-pipelines.yml`** → **Continue**
+- The wizard jumps straight to **Review**, already showing **`azure-pipelines.yml`** with
+  **no asterisk** — that's exactly the file you want, so don't change anything.
+  *(If it shows a different file, use the breadcrumb-dropdown trick in the Step 3a box to switch
+  back to `azure-pipelines.yml`.)*
 - Click the **▾ caret next to Run** → **Save** (**do NOT run yet** — Step 6 must exist first)
 
 ---
